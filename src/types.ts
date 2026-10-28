@@ -7,8 +7,16 @@ export interface Profile {
   goalWeight: number;
   height: number;
   age: number;
+  gender?: 'male' | 'female' | 'unspecified';
   goalType: string; // 'fatLoss' | 'recomp' | 'muscleGain' | string
   deadlineMonths: number;
+  onboardingCompleted?: boolean;
+  notificationPreferences?: {
+    hydrationAlerts: boolean;
+    workoutAlerts: boolean;
+    macroAlerts: boolean;
+    soundEnabled: boolean;
+  };
   createdAt: number;
 }
 
@@ -204,6 +212,8 @@ export interface Reminder {
   enabled: boolean;
   days: string[];
   category: string;
+  snoozedUntilMs?: number;
+  lastTriggeredDate?: string;
   createdAt: number;
 }
 

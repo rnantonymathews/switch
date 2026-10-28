@@ -10,7 +10,8 @@ import {
   deleteDoc,
   onSnapshot,
   collection,
-  addDoc
+  addDoc,
+  writeBatch
 } from 'firebase/firestore';
 import {
   Dumbbell,
@@ -29,6 +30,7 @@ import {
   Play,
   Settings,
   Bell,
+  BellRing,
   CheckSquare,
   CalendarClock,
   Volume2,
@@ -88,12 +90,14 @@ import {
 } from './src/lib/schedule';
 import { generateZestCode } from './src/lib/crypto';
 import { db, auth, safeWrite, appId } from './src/lib/firebase';
+import { dispatchNativeNotification, shouldTriggerReminder } from './src/lib/notifications';
 
 // Tab Components extracted in Phase 3
 import { FitnessTab } from './src/components/FitnessTab';
 import { MacrosFoodTab } from './src/components/MacrosFoodTab';
 import { RemindersNotesTab } from './src/components/RemindersNotesTab';
 import { LeaderboardModal } from './src/components/LeaderboardModal';
+import { OnboardingFlow } from './src/components/onboarding/OnboardingFlow';
 
 declare const __initial_auth_token: string | undefined;
 
@@ -141,6 +145,8 @@ export default function App() {
   const [customFoods, setCustomFoods] = useState<CustomFood[]>([]);
   const [showFirstLaunchModal, setShowFirstLaunchModal] = useState(false);
   const [checkedInitialProfile, setCheckedInitialProfile] = useState(false);
+  const [activeReminderAlert, setActiveReminderAlert] = useState<Reminder | null>(null);
+  const [showOnboardingManual, setShowOnboardingManual] = useState(false);
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
@@ -153,14 +159,16 @@ export default function App() {
 
   // User Profile & Identity State
   const [profile, setProfile] = useState<Profile>({
-    username: generateRandomUsername(),
-    avatarEmoji: '🦍',
-    weight: 76,
-    goalWeight: 70,
-    height: 176,
-    age: 26,
+    username: '',
+    avatarEmoji: '⚡',
+    weight: 0,
+    goalWeight: 0,
+    height: 0,
+    age: 0,
+    gender: 'male',
     goalType: 'recomp',
     deadlineMonths: 6,
+    onboardingCompleted: false,
     createdAt: Date.now()
   });
 
@@ -366,19 +374,20 @@ export default function App() {
 
 
   const isProfileComplete = Boolean(
-    profile.username &&
+    profile.onboardingCompleted ||
+    (profile.username &&
       Number(profile.weight) > 25 &&
       Number(profile.goalWeight) > 25 &&
       Number(profile.height) > 90 &&
       Number(profile.age) > 10 &&
-      Number(profile.deadlineMonths) >= 3
+      Number(profile.deadlineMonths) >= 3)
   );
 
   const activeSplit = useMemo(() => {
     return workoutSplits.find((s) => s.id === activeSplitId) || workoutSplits[0] || null;
   }, [workoutSplits, activeSplitId]);
 
-  // Firebase Auth initialization
+  // Firebase Auth initialization (listen to auth changes; onboarding handles sign-in choice)
   useEffect(() => {
     if (!auth) return;
     let isMounted = true;
@@ -386,16 +395,17 @@ export default function App() {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
           await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
         }
       } catch (err) {
-        console.warn('Auth warning:', err);
+        console.warn('Auth token warning:', err);
       }
     };
     initAuth();
     const unsub = onAuthStateChanged(auth, (u) => {
-      if (isMounted) setUser(u);
+      if (isMounted) {
+        setUser(u);
+        setCheckedInitialProfile(true);
+      }
     });
     return () => {
       isMounted = false;
@@ -422,8 +432,7 @@ export default function App() {
           if (data.profile) {
             setProfile(data.profile);
             setCheckedInitialProfile(true);
-          } else if (!checkedInitialProfile) {
-            setShowFirstLaunchModal(true);
+          } else {
             setCheckedInitialProfile(true);
           }
           if (Array.isArray(data.workoutSplits) && data.workoutSplits.length > 0) setWorkoutSplits(data.workoutSplits);
@@ -440,8 +449,7 @@ export default function App() {
             setGroceryItems(data.groceryItems);
             setGroceryRawText(data.groceryItems.join(', '));
           }
-        } else if (!checkedInitialProfile) {
-          setShowFirstLaunchModal(true);
+        } else {
           setCheckedInitialProfile(true);
         }
       },
@@ -675,6 +683,149 @@ export default function App() {
     }, 10000);
     return () => clearInterval(timer);
   }, [activitySchedule, notifiedActivityIds]);
+
+  // Handle Onboarding Completion
+  const handleFinishOnboarding = async (updatedProfile: Profile, newReminders?: Reminder[]) => {
+    setProfile(updatedProfile);
+    setCheckedInitialProfile(true);
+    setShowOnboardingManual(false);
+
+    if (user && db) {
+      try {
+        const configDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'userConfig');
+        await setDoc(configDocRef, { profile: updatedProfile, updatedAt: Date.now() }, { merge: true });
+
+        // If default reminders were generated during onboarding, save them to Firestore
+        if (newReminders && newReminders.length > 0) {
+          const batch = writeBatch(db);
+          newReminders.forEach((rem) => {
+            const remRef = doc(db, 'artifacts', appId, 'users', user.uid, 'reminders', rem.id);
+            batch.set(remRef, rem);
+          });
+          await batch.commit();
+          setRemindersList((prev) => [...prev, ...newReminders]);
+        }
+      } catch (err) {
+        console.warn('Failed to save onboarding data:', err);
+      }
+    }
+    triggerToast(`Welcome to SWITCH, ${updatedProfile.username}! Targets Calibrated.`);
+  };
+
+  // Smart Hydration Reset: Postpones next hydration reminder by 2 hours upon logging water/drinks
+  const resetHydrationReminder = async () => {
+    const hydrationRem = remindersList.find((r) => r.category === 'hydration' && r.enabled);
+    if (!hydrationRem) return;
+
+    const nextTriggerMs = Date.now() + 2 * 60 * 60 * 1000; // 2 hours from now
+    const updated = {
+      ...hydrationRem,
+      snoozedUntilMs: nextTriggerMs
+    };
+
+    setRemindersList((prev) => prev.map((r) => (r.id === hydrationRem.id ? updated : r)));
+
+    if (user && db) {
+      try {
+        const remRef = doc(db, 'artifacts', appId, 'users', user.uid, 'reminders', hydrationRem.id);
+        await setDoc(remRef, { snoozedUntilMs: nextTriggerMs }, { merge: true });
+      } catch (e) {}
+    }
+  };
+
+  // Handle Snooze (+15m) for active reminder alert
+  const handleSnoozeReminderAlert = async () => {
+    if (!activeReminderAlert) return;
+    const rem = activeReminderAlert;
+    const next15m = Date.now() + 15 * 60 * 1000;
+    const updated = { ...rem, snoozedUntilMs: next15m };
+    setRemindersList((prev) => prev.map((r) => (r.id === rem.id ? updated : r)));
+    setActiveReminderAlert(null);
+    triggerToast(`⏰ Snoozed "${rem.title}" for 15 minutes.`);
+
+    if (user && db) {
+      try {
+        const remRef = doc(db, 'artifacts', appId, 'users', user.uid, 'reminders', rem.id);
+        await setDoc(remRef, { snoozedUntilMs: next15m }, { merge: true });
+      } catch (e) {}
+    }
+  };
+
+  // Handle Mark Done for active reminder alert
+  const handleMarkReminderAlertDone = async () => {
+    if (!activeReminderAlert) return;
+    const rem = activeReminderAlert;
+    setActiveReminderAlert(null);
+    soundEngine.playTing();
+    triggerToast(`✅ Completed "${rem.title}"!`);
+
+    const todayKey = getLocalDateKey();
+    const updated = {
+      ...rem,
+      lastTriggeredDate: todayKey,
+      snoozedUntilMs: undefined
+    };
+    setRemindersList((prev) => prev.map((r) => (r.id === rem.id ? updated : r)));
+
+    if (user && db) {
+      try {
+        const remRef = doc(db, 'artifacts', appId, 'users', user.uid, 'reminders', rem.id);
+        await setDoc(remRef, { lastTriggeredDate: todayKey, snoozedUntilMs: null }, { merge: true });
+      } catch (e) {}
+    }
+  };
+
+  // Live Reminder Notification Ticker (Every 10 seconds)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = new Date();
+      const currentHHMM = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+      const todayWeekday = getTodayWeekdayName(now);
+      const todayKey = getLocalDateKey(now);
+
+      remindersList.forEach((rem) => {
+        if (shouldTriggerReminder(rem, currentHHMM, todayWeekday, todayKey)) {
+          // Play audio chime
+          soundEngine.playTing();
+
+          // Dispatch Native Phone/PWA Notification
+          dispatchNativeNotification(
+            `🔔 ${rem.title}`,
+            rem.notes || 'Time to complete your habit! Tap to view.',
+            {
+              tag: `rem-${rem.id}`,
+              actions: [
+                { action: 'done', title: 'Mark Done' },
+                { action: 'snooze', title: '+15m Snooze' }
+              ]
+            }
+          );
+
+          // Show in-app Dynamic Island alert capsule
+          setActiveReminderAlert(rem);
+
+          // Mark triggered today in state and Firestore
+          const updatedRem = {
+            ...rem,
+            lastTriggeredDate: todayKey,
+            snoozedUntilMs: undefined
+          };
+
+          setRemindersList((prev) => prev.map((r) => (r.id === rem.id ? updatedRem : r)));
+
+          if (user && db) {
+            try {
+              const remRef = doc(db, 'artifacts', appId, 'users', user.uid, 'reminders', rem.id);
+              setDoc(remRef, { lastTriggeredDate: todayKey, snoozedUntilMs: null }, { merge: true });
+            } catch (e) {}
+          }
+        }
+      });
+    }, 10000);
+
+    return () => clearInterval(timer);
+  }, [remindersList, user]);
+
 
   // Computed Today's Activity Pill Status
   const todayActivityStatus = useMemo(() => {
@@ -1230,6 +1381,10 @@ export default function App() {
     const updatedMap = { ...waterLogsByDate, [dateKey]: nextTotal };
     setWaterLogsByDate(updatedMap);
 
+    if (delta > 0) {
+      resetHydrationReminder();
+    }
+
     if (activeDraft && activeDraft.dateKey === dateKey) {
       saveDraftToFirestore({ ...activeDraft, waterMl: nextTotal, lastActiveTimestamp: Date.now() });
     }
@@ -1458,6 +1613,7 @@ export default function App() {
       sugar
     };
     setBeverageLogs((prev) => [...prev, entry]);
+    resetHydrationReminder();
     if (user && db) {
       try {
         await appSafeWrite('beverage log', () =>
@@ -2544,45 +2700,57 @@ export default function App() {
       )}
 
 
-      {/* FIRST LAUNCH ONBOARDING SETUP MODAL */}
-      {showFirstLaunchModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-[#1C1C1E] border border-white/10 rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-            <h3 className="text-lg font-black text-white">Welcome to SWITCH</h3>
-            <p className="text-xs text-[#8E8E93]">Set up your athlete biometrics to calibrate your targets.</p>
-            <form onSubmit={handleSaveProfile} className="space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-[#8E8E93] block mb-1">Weight (kg)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    required
-                    value={profile.weight}
-                    onChange={(e) => setProfile({ ...profile, weight: Number(e.target.value) || 0 })}
-                    className="w-full bg-[#2C2C2E] border border-white/5 rounded-xl px-3 py-2 text-white font-bold focus:outline-none focus:border-[#30D158]"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-[#8E8E93] block mb-1">Goal Weight (kg)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    required
-                    value={profile.goalWeight}
-                    onChange={(e) => setProfile({ ...profile, goalWeight: Number(e.target.value) || 0 })}
-                    className="w-full bg-[#2C2C2E] border border-white/5 rounded-xl px-3 py-2 text-white font-bold focus:outline-none focus:border-[#30D158]"
-                  />
-                </div>
+      {/* ONBOARDING & AUTH SUITE (Phase 4 Mobile First Experience) */}
+      {(!isProfileComplete || showOnboardingManual) && (
+        <OnboardingFlow
+          user={user}
+          profile={profile}
+          onFinishOnboarding={handleFinishOnboarding}
+          triggerToast={triggerToast}
+        />
+      )}
+
+      {/* IN-APP DYNAMIC ISLAND REMINDER ALERT CAPSULE */}
+      {activeReminderAlert && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-60 w-11/12 max-w-sm animate-in slide-in-from-top-6 duration-300">
+          <div className="bg-[#141417]/95 border border-[#D4FB45]/60 rounded-3xl p-3.5 shadow-2xl shadow-[#D4FB45]/20 backdrop-blur-2xl flex items-center justify-between space-x-3">
+            <div
+              onClick={() => {
+                setBottomTab('rno');
+                setActiveReminderAlert(null);
+              }}
+              className="flex items-center space-x-3 flex-1 min-w-0 cursor-pointer"
+            >
+              <div className="w-9 h-9 rounded-2xl bg-[#D4FB45]/20 flex items-center justify-center text-[#D4FB45] shrink-0">
+                <BellRing className="w-4 h-4 animate-bounce" />
               </div>
+              <div className="min-w-0">
+                <span className="text-[9px] font-mono tracking-widest text-[#D4FB45] uppercase font-bold block">
+                  REMINDER • {activeReminderAlert.timeStr}
+                </span>
+                <p className="text-xs font-bold text-white truncate">
+                  {activeReminderAlert.title}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-1.5 shrink-0">
               <button
-                type="submit"
-                onClick={() => setShowFirstLaunchModal(false)}
-                className="w-full py-3.5 rounded-2xl bg-[#30D158] text-black font-black text-xs uppercase tracking-wider ios-press transition"
+                type="button"
+                onClick={handleSnoozeReminderAlert}
+                className="px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-mono text-[10px] font-bold uppercase transition cursor-pointer"
+                title="Snooze 15 minutes"
               >
-                Save & Launch
+                +15m
               </button>
-            </form>
+              <button
+                type="button"
+                onClick={handleMarkReminderAlertDone}
+                className="px-3 py-1.5 rounded-xl bg-[#D4FB45] text-black font-mono text-[10px] font-black uppercase shadow-md shadow-[#D4FB45]/20 transition cursor-pointer"
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}
