@@ -2,10 +2,157 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body {
-  margin: 0;
-  padding: 0;
-  background-color: #020617;
-  color: #f8fafc;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+@layer base {
+  html, body {
+    margin: 0;
+    padding: 0;
+    background-color: #000000;
+    color: #FFFFFF;
+    font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    overscroll-behavior-y: none;
+  }
+
+  input, textarea, select {
+    user-select: auto;
+    font-family: inherit;
+  }
 }
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* iOS Tactile Press Feel */
+.ios-press {
+  transition: transform 0.15s cubic-bezier(0.2, 0, 0, 1), opacity 0.15s ease;
+}
+.ios-press:active {
+  transform: scale(0.96);
+  opacity: 0.88;
+}
+
+/* iOS Glass Effect */
+.ios-blur {
+  background-color: rgba(20, 20, 23, 0.82);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+}
+
+.ios-blur-nav {
+  background-color: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(30px) saturate(200%);
+  -webkit-backdrop-filter: blur(30px) saturate(200%);
+}
+
+.ios-card {
+  background-color: #141417;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1.5rem; /* 24px */
+}
+
+.ios-subcard {
+  background-color: #1F1F24;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 1.125rem; /* 18px */
+}
+
+/* Floating Dock Glass Capsule */
+.floating-dock {
+  background-color: rgba(20, 20, 23, 0.85);
+  backdrop-filter: blur(28px) saturate(200%);
+  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+/* High Contrast Pill Utilities */
+.pill-inactive {
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: rgba(255, 255, 255, 0.75);
+}
+.pill-inactive:hover {
+  background-color: rgba(255, 255, 255, 0.10);
+  color: #FFFFFF;
+}
+
+/* iOS Bottom Sheet slide-up animation */
+@keyframes iosSlideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0.8;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.ios-sheet-animate {
+  animation: iosSlideUp 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Fluid Wave Tank Animation */
+@keyframes waveMoveFront {
+  0% { transform: translateX(0); }
+  50% { transform: translateX(-25%); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes waveMoveBack {
+  0% { transform: translateX(-50%); }
+  50% { transform: translateX(-25%); }
+  100% { transform: translateX(0); }
+}
+
+.animate-wave-front {
+  animation: waveMoveFront 6s ease-in-out infinite;
+}
+
+.animate-wave-back {
+  animation: waveMoveBack 8s ease-in-out infinite;
+}
+
+/* Standardized Tactile Button Classes */
+.btn-primary-green {
+  background-color: #D4FB45;
+  color: #000000;
+  font-weight: 700;
+  border-radius: 0.75rem;
+  box-shadow: 0 4px 14px 0 rgba(212, 251, 69, 0.25);
+  transition: all 0.15s ease;
+}
+.btn-primary-green:hover {
+  background-color: #bfe635;
+  box-shadow: 0 6px 20px 0 rgba(212, 251, 69, 0.35);
+}
+.btn-primary-green:active {
+  transform: scale(0.96);
+}
+
+.btn-secondary-dark {
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: #FFFFFF;
+  font-weight: 600;
+  border-radius: 0.75rem;
+  transition: all 0.15s ease;
+}
+.btn-secondary-dark:hover {
+  background-color: rgba(255, 255, 255, 0.10);
+  border-color: rgba(212, 251, 69, 0.40);
+}
+.btn-secondary-dark:active {
+  transform: scale(0.96);
+}
+

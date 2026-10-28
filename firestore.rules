@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Everything private to a user
+    match /artifacts/{appId}/users/{uid}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Leaderboard groups ("Zests"): reachable only by knowing the code
+    match /artifacts/{appId}/public/data/competitionZests/{code} {
+      allow get: if request.auth != null;
+      allow list: if false; // nobody can enumerate groups
+      allow create: if request.auth != null
+                    && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if request.auth != null
+                    && resource.data.ownerUid == request.auth.uid;
+
+      match /members/{memberUid} {
+        allow read: if request.auth != null;
+        allow write: if request.auth != null && request.auth.uid == memberUid;
+      }
+
+      match /bubbles/{bubbleId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null
+                      && request.resource.data.senderUid == request.auth.uid
+                      && request.resource.data.message.size() <= 200;
+        allow update, delete: if false;
+      }
+    }
+  }
+}

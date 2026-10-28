@@ -16,5 +16,5 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "switch_fitness_application.tsx"]
+  "include": ["src", "switch_fitness_application.tsx", "tests"]
 }
