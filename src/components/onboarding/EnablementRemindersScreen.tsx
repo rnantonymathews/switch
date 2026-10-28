@@ -29,31 +29,37 @@ export const EnablementRemindersScreen: React.FC<EnablementRemindersScreenProps>
     setIsRequesting(true);
     soundEngine.playTing();
 
-    // Request native browser/PWA permission
-    const perm = await requestNotificationPermission();
+    try {
+      // Request native browser/PWA permission with safety timeout
+      const perm = await requestNotificationPermission();
 
-    if (perm === 'granted') {
-      triggerToast('Notifications enabled! Welcome to SWITCH.');
-      onCompleted({
-        hydrationAlerts,
-        workoutAlerts,
-        macroAlerts,
-        soundEnabled
-      });
-    } else {
-      // User denied or dismissed: Show Soft Lock Prompt
-      setIsRequesting(false);
+      if (perm === 'granted') {
+        triggerToast('Notifications enabled! Welcome to SWITCH.');
+        onCompleted({
+          hydrationAlerts,
+          workoutAlerts,
+          macroAlerts,
+          soundEnabled
+        });
+      } else {
+        // User denied, dismissed, or notifications unsupported: Show Soft Lock Prompt
+        setShowSoftLockModal(true);
+      }
+    } catch (err) {
+      console.warn('Notification permission error:', err);
       setShowSoftLockModal(true);
+    } finally {
+      setIsRequesting(false);
     }
   };
 
   const handleProceedWithoutAlerts = () => {
     setShowSoftLockModal(false);
-    triggerToast('Entering SWITCH (Reminders can be enabled later in Settings).');
+    triggerToast('Entering SWITCH (Reminders can be enabled anytime in Settings).');
     onCompleted({
-      hydrationAlerts: false,
-      workoutAlerts: false,
-      macroAlerts: false,
+      hydrationAlerts,
+      workoutAlerts,
+      macroAlerts,
       soundEnabled
     });
   };
@@ -199,15 +205,23 @@ export const EnablementRemindersScreen: React.FC<EnablementRemindersScreenProps>
         </div>
       </div>
 
-      {/* Primary CTA Button */}
-      <div className="w-full max-w-md mx-auto pt-2">
+      {/* Primary CTA Button & Direct Entry Option */}
+      <div className="w-full max-w-md mx-auto pt-2 space-y-2.5 text-center">
         <button
           type="button"
           disabled={isRequesting}
           onClick={handleAllowAndEnter}
           className="w-full py-4 rounded-2xl bg-[#D4FB45] text-black font-black text-xs uppercase tracking-wider flex items-center justify-center space-x-2 shadow-xl shadow-[#D4FB45]/20 ios-press cursor-pointer hover:bg-[#D4FB45]/90 transition"
         >
-          <span>{isRequesting ? 'CALIBRATING...' : 'ALLOW NOTIFICATIONS & ENTER SWITCH →'}</span>
+          <span>{isRequesting ? 'ACTIVATING ALERTS...' : 'ALLOW NOTIFICATIONS & ENTER SWITCH →'}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={handleProceedWithoutAlerts}
+          className="text-[11px] font-mono text-[#8E8E93] hover:text-[#D4FB45] transition tracking-wider uppercase cursor-pointer py-1 block mx-auto"
+        >
+          Skip For Now & Enter Directly →
         </button>
       </div>
 

@@ -4,9 +4,33 @@ export async function requestNotificationPermission(): Promise<'granted' | 'deni
   if (typeof window === 'undefined' || !('Notification' in window)) {
     return 'unsupported';
   }
+
+  // If already decided by the user, return immediately without re-prompting
+  if (Notification.permission === 'granted' || Notification.permission === 'denied') {
+    return Notification.permission;
+  }
+
   try {
-    const perm = await Notification.requestPermission();
-    return perm;
+    // 2.5-second maximum timeout so mobile browsers or webviews never hang the UI
+    const timeoutPromise = new Promise<'default'>((resolve) => {
+      setTimeout(() => resolve(Notification.permission || 'default'), 2500);
+    });
+
+    const requestPromise = new Promise<'granted' | 'denied' | 'default'>((resolve) => {
+      try {
+        // Dual support: modern Promise-based and callback-based (iOS WebKit / older Safari)
+        const res = Notification.requestPermission((p) => {
+          if (p) resolve(p);
+        });
+        if (res && typeof (res as any).then === 'function') {
+          (res as Promise<NotificationPermission>).then((p) => resolve(p)).catch(() => resolve(Notification.permission || 'denied'));
+        }
+      } catch (err) {
+        resolve(Notification.permission || 'denied');
+      }
+    });
+
+    return await Promise.race([requestPromise, timeoutPromise]);
   } catch (err) {
     console.warn('Error requesting notification permission:', err);
     return Notification.permission || 'denied';

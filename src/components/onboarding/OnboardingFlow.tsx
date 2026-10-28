@@ -116,8 +116,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       });
     }
 
-    await onFinishOnboarding(finalProfile, defaultReminders);
     setCurrentStep('complete');
+    try {
+      await onFinishOnboarding(finalProfile, defaultReminders);
+    } catch (err) {
+      console.warn('Onboarding completion sync error:', err);
+    }
   };
 
   if (currentStep === 'splash') {
