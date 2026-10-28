@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bell, Droplets, Dumbbell, UtensilsCrossed, Check, ShieldAlert, ArrowRight, Volume2 } from 'lucide-react';
+import { Bell, Droplets, Dumbbell, UtensilsCrossed, Check, Volume2 } from 'lucide-react';
 import { requestNotificationPermission } from '../../lib/notifications';
 import { soundEngine } from '../../lib/sound';
 
@@ -23,39 +23,33 @@ export const EnablementRemindersScreen: React.FC<EnablementRemindersScreenProps>
   const [soundEnabled, setSoundEnabled] = useState(true);
 
   const [isRequesting, setIsRequesting] = useState(false);
-  const [showSoftLockModal, setShowSoftLockModal] = useState(false);
 
-  const handleAllowAndEnter = async () => {
+  const handleAllowAndEnter = () => {
     setIsRequesting(true);
     soundEngine.playTing();
 
-    try {
-      // Request native browser/PWA permission with safety timeout
-      const perm = await requestNotificationPermission();
-
-      if (perm === 'granted') {
-        triggerToast('Notifications enabled! Welcome to SWITCH.');
-        onCompleted({
-          hydrationAlerts,
-          workoutAlerts,
-          macroAlerts,
-          soundEnabled
-        });
-      } else {
-        // User denied, dismissed, or notifications unsupported: Show Soft Lock Prompt
-        setShowSoftLockModal(true);
-      }
-    } catch (err) {
-      console.warn('Notification permission error:', err);
-      setShowSoftLockModal(true);
-    } finally {
-      setIsRequesting(false);
+    // Trigger browser notification prompt asynchronously without blocking entry
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      try {
+        const p = Notification.requestPermission();
+        if (p && typeof (p as any).then === 'function') {
+          (p as Promise<NotificationPermission>).catch(() => {});
+        }
+      } catch (e) {}
     }
+
+    triggerToast('Preferences saved! Welcome to SWITCH.');
+    onCompleted({
+      hydrationAlerts,
+      workoutAlerts,
+      macroAlerts,
+      soundEnabled
+    });
   };
 
   const handleProceedWithoutAlerts = () => {
-    setShowSoftLockModal(false);
-    triggerToast('Entering SWITCH (Reminders can be enabled anytime in Settings).');
+    soundEngine.playTing();
+    triggerToast('Entering SWITCH (Reminders can be adjusted anytime in Settings).');
     onCompleted({
       hydrationAlerts,
       workoutAlerts,
@@ -206,14 +200,13 @@ export const EnablementRemindersScreen: React.FC<EnablementRemindersScreenProps>
       </div>
 
       {/* Primary CTA Button & Direct Entry Option */}
-      <div className="w-full max-w-md mx-auto pt-2 space-y-2.5 text-center">
+      <div className="w-full max-w-md mx-auto pt-2 space-y-3 text-center">
         <button
           type="button"
-          disabled={isRequesting}
           onClick={handleAllowAndEnter}
           className="w-full py-4 rounded-2xl bg-[#D4FB45] text-black font-black text-xs uppercase tracking-wider flex items-center justify-center space-x-2 shadow-xl shadow-[#D4FB45]/20 ios-press cursor-pointer hover:bg-[#D4FB45]/90 transition"
         >
-          <span>{isRequesting ? 'ACTIVATING ALERTS...' : 'ALLOW NOTIFICATIONS & ENTER SWITCH →'}</span>
+          <span>ALLOW ALERTS & ENTER SWITCH →</span>
         </button>
 
         <button
@@ -221,46 +214,13 @@ export const EnablementRemindersScreen: React.FC<EnablementRemindersScreenProps>
           onClick={handleProceedWithoutAlerts}
           className="text-[11px] font-mono text-[#8E8E93] hover:text-[#D4FB45] transition tracking-wider uppercase cursor-pointer py-1 block mx-auto"
         >
-          Skip For Now & Enter Directly →
+          Enter Without Push Alerts →
         </button>
+
+        <p className="text-[10px] text-[#8E8E93]/70 font-mono tracking-tight pt-1">
+          📱 On iPhone Safari, install SWITCH to Home Screen (PWA) for lock screen alerts.
+        </p>
       </div>
-
-      {/* Soft-Lock Consistency Modal (Shown if user denies or dismisses permission) */}
-      {showSoftLockModal && (
-        <div className="fixed inset-0 z-60 bg-black/85 backdrop-blur-xl flex items-center justify-center p-6 animate-in fade-in">
-          <div className="bg-[#1C1C1E] border border-white/10 rounded-3xl max-w-sm w-full p-6 text-center space-y-4 shadow-2xl">
-            <div className="w-12 h-12 mx-auto rounded-2xl bg-[#FF9F0A]/20 border border-[#FF9F0A]/40 flex items-center justify-center text-[#FF9F0A]">
-              <ShieldAlert className="w-6 h-6" />
-            </div>
-
-            <div className="space-y-1.5">
-              <h3 className="text-lg font-black text-white uppercase tracking-tight">
-                Consistency Notice
-              </h3>
-              <p className="text-xs text-[#8E8E93] leading-relaxed">
-                Reminders are designed to keep you disciplined, hydrated, and hitting your targets. Are you sure you want to proceed without notifications?
-              </p>
-            </div>
-
-            <div className="space-y-2 pt-2">
-              <button
-                type="button"
-                onClick={handleAllowAndEnter}
-                className="w-full py-3.5 rounded-2xl bg-[#D4FB45] text-black font-black text-xs uppercase tracking-wider ios-press cursor-pointer"
-              >
-                Try Again & Enable
-              </button>
-              <button
-                type="button"
-                onClick={handleProceedWithoutAlerts}
-                className="w-full py-3 rounded-2xl bg-[#2C2C2E] text-white/70 hover:text-white font-bold text-xs uppercase tracking-wider ios-press cursor-pointer"
-              >
-                Proceed Without Alerts
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
